@@ -230,6 +230,10 @@ module HabTesting
             end
 
         end
+
+        def create_ring(package_to_run, num_nodes)
+            
+        end
     end
 
     class LinuxPlatform < Platform
