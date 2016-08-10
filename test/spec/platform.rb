@@ -231,9 +231,7 @@ module HabTesting
 
         end
 
-        def create_ring(package_to_run, num_nodes)
-            
-        end
+        
     end
 
     class LinuxPlatform < Platform
@@ -309,6 +307,13 @@ module HabTesting
 
         end
 
+
+        def show_env()
+            puts "X" * 80
+            puts `env`
+            puts "X" * 80
+        end
+
         # execute a `hab` subcommand and wait for the process to finish
         def cmd(cmdline, **cmd_options)
             debug = cmd_options[:debug] || @cmd_debug
@@ -330,10 +335,45 @@ module HabTesting
             return $?
         end
 
-        def show_env()
-            puts "X" * 80
-            puts `env`
-            puts "X" * 80
+        # runs a command in the background, returns a pid
+        def bg_cmd(cmdline, **cmd_options)
+            debug = cmd_options[:debug] || @cmd_debug
+
+            if debug then
+                puts "X" * 80
+                puts `env`
+                puts "X" * 80
+            end
+
+            fullcmdline = "#{@hab_bin} #{cmdline} | tee -a #{log_file_name()} 2>&1"
+            # record the command we'll be running in the log file
+            `echo #{fullcmdline} >> #{log_file_name()}`
+            puts " → #{fullcmdline}"
+            # TODO: replace this with Mixlib:::Shellout
+            pid = spawn(fullcmdline)
+            @all_children << [cmdline, pid]
+            return pid
+        end
+
+        TestSupervisor = Struct.new(:pid, :package, :port, :http_port, :group, :org)
+
+        def create_ring(num_supervisors, package_to_run, group, org)
+            listen_peer_port=9000
+            sidecar_port=8000
+            children = []
+            num_supervisors.times do |i|
+                cmd = "start #{package_to_run} --listen-peer #{listen_peer_port} --listen-http #{sidecar_port} --group #{group} --org #{org}"
+                if i > 0 then
+                    # if we aren't the first, the join up to the previous sup that's been started
+                    cmd += "--peer #{listen_peer_port -1 }" 
+                end
+                puts cmd
+                
+                child = TestSupervisor.new(0, package_to_run, listen_peer_port, sidecar_port, group, org)
+                puts child
+                children << child
+            end
+            children
         end
 
         # execute a possibly long-running process and wait for a particular string
