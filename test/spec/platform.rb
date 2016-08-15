@@ -24,6 +24,7 @@ require 'timeout'
 
 module HabTesting
 
+
     module Constants
         Metafiles = %w(BUILD_DEPS BUILD_TDEPS CFLAGS CPPFLAGS CXXFLAGS DEPS
                        FILES IDENT LDFLAGS LD_RUN_PATH MANIFEST TARGET TDEPS)
@@ -125,12 +126,18 @@ module HabTesting
         # We'll clean up directories upon completion if tests pass.
         attr_accessor :test_directories
 
+        # a known origin name for testing, we won't ever publish keys
+        # for this origin, as keys will be generated at the start of
+        # a test run if they do not exist.
+        attr_accessor :shared_test_origin
+
         def initialize
             @all_children = []
             @cleanup = true
             @cmd_debug = false
             @cmd_timeout_seconds = 30
             @test_directories = []
+            @shared_test_origin = "hab_test"
         end
 
         # generate a unique name for use in testing
@@ -157,6 +164,9 @@ module HabTesting
                 @cmd_debug = true
             end
             ENV['HAB_ORIGIN'] = @hab_origin
+
+            create_hab_test_origin
+
             puts "» Generating origin key"
             cmd_expect("origin key generate #{@hab_origin}",
                        "Generated origin key pair #{@hab_origin}")
@@ -171,7 +181,6 @@ module HabTesting
             cmd_expect("ring key generate #{@hab_ring}",
                        "Generated ring key pair #{@hab_ring}")
             puts "★ Generated ring key"
-
             # we don't generate a service key here because they depend
             # on the name of the service that's being run
             puts "★ Setup complete"
@@ -186,6 +195,38 @@ module HabTesting
                     puts "PID INFO: #{pidinfo}"
                 end
             end
+        end
+
+        def build_and_install_shared_fixture
+
+            installed_path = Pathname.new(@hab_pkg_path).
+                               join(@shared_test_origin).
+                               join("simple_service")
+            if installed_path.exist? then
+                puts "★ simple_service is already installed"
+                return
+            end
+            # /hab/pkgs/hab_test/simple_service/
+            prev_origin = ENV['HAB_ORIGIN']
+
+            begin
+                ENV['HAB_ORIGIN'] = @shared_test_origin
+                puts "» Building simple_service test fixture"
+                # building a package can take quite awhile, let's bump the timeout to
+                # 60 seconds to be sure we finish in time.
+                cmd_expect("studio build fixtures/simple_service",
+                                            "I love it when a plan.sh comes together",
+                                            :timeout_seconds => 60)
+                puts "★ Built simple_service test fixture"
+
+                puts "» Installing simple_service test fixture"
+                cmd_expect("pkg install ./results/hab_test-simple_service*.hart",
+                           "complete")
+                puts "★ simple_service installed"
+            ensure
+                ENV['HAB_ORIGIN'] = prev_origin
+            end
+
         end
 
         def register_dir(d)
@@ -230,8 +271,6 @@ module HabTesting
             end
 
         end
-
-        
     end
 
     class LinuxPlatform < Platform
@@ -355,20 +394,42 @@ module HabTesting
             return pid
         end
 
-        TestSupervisor = Struct.new(:pid, :package, :port, :http_port, :group, :org)
 
+        # create a common key that we use for testing only.
+        # These keys should never be uploaded to the Depot, and
+        # they're only generated if needed.
+        # It's ok if these keys stick around in between tests.
+        def create_hab_test_origin
+            re = Regexp.new(@shared_test_origin)
+
+            skip = Dir.entries(@hab_key_cache).any? do |f|
+                re =~ f
+            end
+
+            if skip then
+                puts "★ #{shared_test_origin} keys already exists"
+            else
+                puts "» Generating #{@shared_test_origin} origin key"
+                cmd_expect("origin key generate #{@shared_test_origin}",
+                        "Generated origin key pair")
+                puts "★ Generated #{@shared_test_origin} origin key"
+            end
+        end
+
+        # TODO: move this
+        TestSupervisor = Struct.new(:pid, :package, :port, :http_port, :group, :org)
         def create_ring(num_supervisors, package_to_run, group, org)
             listen_peer_port=9000
             sidecar_port=8000
             children = []
             num_supervisors.times do |i|
-                cmd = "start #{package_to_run} --listen-peer #{listen_peer_port} --listen-http #{sidecar_port} --group #{group} --org #{org}"
+                cmdline = "start #{package_to_run} --listen-peer #{listen_peer_port} --listen-http #{sidecar_port} --group #{group} --org #{org}"
                 if i > 0 then
                     # if we aren't the first, the join up to the previous sup that's been started
-                    cmd += "--peer #{listen_peer_port -1 }" 
+                    cmdline += "--peer #{listen_peer_port - 1 }"
                 end
-                puts cmd
-                
+                puts cmdline
+                bg_cmd(cmdline)
                 child = TestSupervisor.new(0, package_to_run, listen_peer_port, sidecar_port, group, org)
                 puts child
                 children << child
