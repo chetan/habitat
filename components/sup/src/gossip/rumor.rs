@@ -54,7 +54,7 @@ impl Peer {
 }
 
 /// The SWIM Protocol.
-#[derive(Debug, RustcDecodable, RustcEncodable)]
+#[derive(Clone, Debug, RustcDecodable, RustcEncodable)]
 pub enum Protocol {
     Ping(Peer, RumorList),
     Ack(Peer, RumorList),

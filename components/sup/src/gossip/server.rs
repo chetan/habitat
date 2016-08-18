@@ -33,6 +33,9 @@ use common::gossip_file::GossipFileList;
 use hcore::crypto::{default_cache_key_path, SymKey};
 use hcore::service::ServiceGroup;
 use utp::{UtpListener, UtpSocket};
+use rustc_serialize::json;
+use time;
+
 
 use gossip::client::Client;
 use gossip::member::{Member, MemberList, Health};
@@ -297,6 +300,16 @@ pub fn inbound(listener: UtpListener,
     }
 }
 
+
+#[derive(Debug, RustcDecodable, RustcEncodable)]
+pub struct TraceMessage {
+    pub header: String,
+    pub time: String,
+    pub src: String,
+    pub msg: Protocol,
+}
+
+
 /// Receives a message from the inbound listener.
 ///
 /// Tries to receive a protocol message on the socket we were passed, then handles it according to what part
@@ -336,7 +349,20 @@ fn receive(socket: UtpSocket,
         }
     };
 
+    {
+        let now = format!("{}", time::precise_time_ns());
+        let trace = TraceMessage { header: "HAB_MSG".to_string(),
+                                   time: now,
+                                   src: src.to_string(),
+                                   msg: msg.clone()};
+
+        let encoded = json::encode(&trace).unwrap();
+        println!("{}", encoded);
+    }
+
     debug!("#{:?} protocol {:?}", src, msg);
+    // msg = gossip::rumor::Protocol
+    // src is std::net::SocketAddr
 
     match msg {
         Protocol::Ping(from_peer, remote_rumor_list) => {
