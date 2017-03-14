@@ -277,16 +277,23 @@ docker_image() {
 
   local pkg_file=$(ls /hab/cache/artifacts/$(cat $(hab pkg path $pkg_ident)/IDENT | tr '/' '-')-*)
   cp -a $pkg_file $DOCKER_CONTEXT/
+  # make sure all local keys are available during docker build
+  mkdir -p $DOCKER_CONTEXT/keys && cp -a /hab/cache/keys/* $DOCKER_CONTEXT/keys/
   pkg_file=$(basename $pkg_file)
 
   cat <<EOT > $DOCKER_CONTEXT/Dockerfile
 FROM ${DOCKER_BASE_TAG}
-COPY ${pkg_file} /tmp/
-RUN hab pkg install /tmp/${pkg_file} && rm -f /tmp/${pkg_file}
 
-RUN mkdir -p $HAB_ROOT_PATH/svc/${pkg_name}/data \
-             $HAB_ROOT_PATH/svc/${pkg_name}/config \
-      && chown -R 42:42 $HAB_ROOT_PATH/svc/${pkg_name}
+COPY ${pkg_file} /tmp/
+COPY keys/* /hab/cache/keys/
+
+RUN hab pkg install /tmp/${pkg_file} \
+    && rm -f /tmp/${pkg_file} \
+    && mkdir -p $HAB_ROOT_PATH/svc/${pkg_name}/data \
+                $HAB_ROOT_PATH/svc/${pkg_name}/config \
+    && chown -R 42:42 $HAB_ROOT_PATH/svc/${pkg_name} \
+    && rm -f /hab/cache/keys/*.key
+
 VOLUME $HAB_ROOT_PATH/svc/${pkg_name}/data $HAB_ROOT_PATH/svc/${pkg_name}/config
 EXPOSE 9631 $(package_exposes $1)
 ENTRYPOINT ["/init.sh"]
