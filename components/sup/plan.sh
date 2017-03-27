@@ -52,6 +52,7 @@ do_prepare() {
 do_build() {
   export LIBRARY_PATH=$LIBZMQ_PREFIX/lib
   pushd $PLAN_CONTEXT > /dev/null
+  export TARGET=x86_64-unknown-linux-musl
   cargo build ${build_type#--debug} --target=$rustc_target --verbose
   popd > /dev/null
 }

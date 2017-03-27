@@ -4,9 +4,12 @@ pkg_name=hab-sup-static
 pkg_maintainer="The Habitat Maintainers <humans@habitat.sh>"
 pkg_deps=(core/busybox-static)
 pkg_build_deps=(
-  core/musl core/zlib-musl core/xz-musl core/bzip2-musl core/libarchive-musl
+  core/zlib-musl core/xz-musl core/bzip2-musl core/libarchive-musl
   core/openssl-musl core/libsodium-musl
-  core/coreutils core/cacerts core/rust core/gcc
+  core/coreutils core/cacerts core/rust
+  core/protobuf
+  core/pkg-config
+  chetan/zeromq-musl chetan/gcc-musl
 )
 
 do_begin() {
@@ -24,20 +27,42 @@ do_prepare() {
   la_ldflags="$la_ldflags -L$(pkg_path_for xz-musl)/lib -llzma"
   la_ldflags="$la_ldflags -L$(pkg_path_for bzip2-musl)/lib -lbz2"
   la_ldflags="$la_ldflags -L$(pkg_path_for openssl-musl)/lib -lssl -lcrypto"
+  la_ldflags="$la_ldflags -L$(pkg_path_for core/libsodium-musl)/lib -lsodium"
+  la_ldflags="$la_ldflags -L$(pkg_path_for chetan/zeromq-musl)/lib -lzmq"
 
   export LIBARCHIVE_LIB_DIR=$(pkg_path_for libarchive-musl)/lib
   export LIBARCHIVE_INCLUDE_DIR=$(pkg_path_for libarchive-musl)/include
   export LIBARCHIVE_LDFLAGS="$la_ldflags"
   export LIBARCHIVE_STATIC=true
+
   export OPENSSL_LIB_DIR=$(pkg_path_for openssl-musl)/lib
   export OPENSSL_INCLUDE_DIR=$(pkg_path_for openssl-musl)/include
   export OPENSSL_STATIC=true
+
   export SODIUM_LIB_DIR=$(pkg_path_for libsodium-musl)/lib
   export SODIUM_STATIC=true
+
+  export LIBZMQ_PREFIX=$(pkg_path_for chetan/zeromq-musl)
+  export LIBZMQ_STATIC=true
+
+  export PROTOBUF_PREFIX=$(pkg_path_for protobuf)
 
   # Used to find libgcc_s.so.1 when compiling `build.rs` in dependencies. Since
   # this used only at build time, we will use the version found in the gcc
   # package proper--it won't find its way into the final binaries.
-  export LD_LIBRARY_PATH=$(pkg_path_for gcc)/lib
+  export LD_LIBRARY_PATH=$(pkg_path_for chetan/gcc-musl)/lib
   build_line "Setting LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+
+  local flags=$(echo $CFLAGS | tr ' ' '\n' | grep -v /musl/ | tr '\n' ' ')
+  CFLAGS="$flags"
+  CXXFLAGS="$flags"
+  CPPFLAGS="$flags"
+
+  sodium_CFLAGS="$(pkg-config --cflags libsodium)"
+  sodium_LIBS="$(pkg-config --libs libsodium)"
+  LIBS="$LIBS $sodium_LIBS"
+
+  dynamic_linker="$(pkg_path_for chetan/gcc-musl)/x86_64-linux-musl/lib/ld-musl-x86_64.so.1"
+  LDFLAGS="$LDFLAGS -Wl,--dynamic-linker=$dynamic_linker"
+
 }
